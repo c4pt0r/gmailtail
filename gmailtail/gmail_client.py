@@ -207,7 +207,7 @@ class GmailClient:
         # Parse timestamp
         if 'internalDate' in message:
             timestamp = int(message['internalDate']) / 1000
-            parsed['timestamp'] = datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+            parsed['timestamp'] = datetime.fromtimestamp(timestamp).isoformat()
         
         # Parse headers
         headers = {}

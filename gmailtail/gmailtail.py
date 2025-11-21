@@ -72,35 +72,67 @@ class GmailTail:
     def _run_once(self, query: str):
         """Run once and exit"""
         self.formatter.output_verbose("Running in single-shot mode")
-        
+
         try:
             # When --query is specified, fetch all results unless --max-messages is set
             if self.config.filters.query and not self.config.monitoring.max_messages:
                 self.formatter.output_verbose("Fetching all messages matching query")
                 messages = self._fetch_all_messages(query)
+
+                # Process all fetched messages
+                for message_info in messages:
+                    if not self.running:
+                        break
+
+                    if (self.config.monitoring.max_messages and
+                        self.message_count >= self.config.monitoring.max_messages):
+                        break
+
+                    self._process_message(message_info['id'])
             else:
-                # Use batch size for normal operation
-                result = self.client.list_messages(
-                    query=query,
-                    max_results=self.config.monitoring.batch_size
-                )
-                messages = result.get('messages', [])
-            
-            self.formatter.output_verbose(f"Found {len(messages)} messages")
-            
-            # Process messages
-            for message_info in messages:
-                if not self.running:
-                    break
-                
-                if (self.config.monitoring.max_messages and 
-                    self.message_count >= self.config.monitoring.max_messages):
-                    break
-                
-                self._process_message(message_info['id'])
-            
+                # Use batch size for normal operation, loop until max_messages or no more results
+                page_token = None
+
+                while self.running:
+                    # Fetch a batch of messages
+                    result = self.client.list_messages(
+                        query=query,
+                        max_results=self.config.monitoring.batch_size,
+                        page_token=page_token
+                    )
+                    messages = result.get('messages', [])
+
+                    if not messages:
+                        self.formatter.output_verbose("No more messages to fetch")
+                        break
+
+                    self.formatter.output_verbose(f"Fetched {len(messages)} messages in this batch")
+
+                    # Process messages in this batch
+                    for message_info in messages:
+                        if not self.running:
+                            break
+
+                        if (self.config.monitoring.max_messages and
+                            self.message_count >= self.config.monitoring.max_messages):
+                            self.formatter.output_verbose(f"Reached maximum message limit: {self.config.monitoring.max_messages}")
+                            break
+
+                        self._process_message(message_info['id'])
+
+                    # Check if we should continue
+                    if (self.config.monitoring.max_messages and
+                        self.message_count >= self.config.monitoring.max_messages):
+                        break
+
+                    # Check for next page
+                    page_token = result.get('nextPageToken')
+                    if not page_token:
+                        self.formatter.output_verbose("No more pages to fetch")
+                        break
+
             self.formatter.output_verbose(f"Processed {self.message_count} messages")
-            
+
         except Exception as e:
             self.formatter.output_error(f"Error in single-shot mode: {e}")
             raise
